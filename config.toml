@@ -1,0 +1,28 @@
+# =============================================================================
+# Konfiguration für bootc-image-builder
+# Wird beim ISO/Disk-Image-Bau eingelesen: --config config.toml
+# =============================================================================
+
+[customizations.installer.modules]
+#enable = ["org.fedoraproject.Anaconda.Modules.Localization"]
+disable = ["org.fedoraproject.Anaconda.Modules.Users"]
+
+[customizations.installer.kickstart]
+contents = """
+graphical
+"""
+
+#[customizations.installer.kickstart]
+#contents = """
+#graphical
+#
+#rootpw --lock
+#"""
+
+# Hinweis: "rootpw --lock" wurde entfernt. Der Befehl gehört zum Users-Modul; ist das Modul deaktiviert, kann Anaconda den Befehl nicht mehr verarbeiten, Benutzeranlage erfolgt dann z.B. über gnome-initial-setup beim ersten Boot.
+
+# --- ISO-Label ---
+[customizations.iso]
+volume_id = "RHEL10-WORKSTATION"
+application_id = "Silverred"
+publisher = "JohnJayMcKaye"
