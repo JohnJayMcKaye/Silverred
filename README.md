@@ -2,6 +2,8 @@
 A RHEL 10 image-mode (immutable) Workstation OS
  
 **Silverred** ist ein eigenes RHEL-10-Image-Mode-Image (bootc) für Notebooks/Laptops. Es basiert auf dem offiziellen `rhel10/rhel-bootc`-Image von Red Hat und wird als fertig konfiguriertes, bootfähiges System ausgeliefert – inklusive aller Locales, Tastaturlayout, Laptop-Stromverwaltung und dezentes Branding.
+
+![](/Screenshot.png)
  
 Das Image wird über `bootc` verteilt: Es liegt als gewöhnliches Container-Image auf einer Registry (quay.io) und wird auf dem Zielsystem entweder per bootfähiger ISO installiert oder auf bereits laufenden Systemen per `bootc switch`/Update eingespielt.
  
