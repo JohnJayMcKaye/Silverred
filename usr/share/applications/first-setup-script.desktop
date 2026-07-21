@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Silverred Ersteinrichtung 
+Icon=/usr/share/icons/hicolor/scalable/apps/start-here2.svg
+Type=Application
+TryExec=/usr/libexec/cockpit-desktop
+Exec=/usr/local/bin/silverred.sh
+Terminal=true
+Categories=System;Silverred-Base;
