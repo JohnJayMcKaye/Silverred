@@ -1,0 +1,5 @@
+Silverred-2026-07-20
+
+Changelog:
+
+-Update script hinzugefügt
