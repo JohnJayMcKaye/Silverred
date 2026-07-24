@@ -10,6 +10,7 @@ disable = ["org.fedoraproject.Anaconda.Modules.Users"]
 [customizations.installer.kickstart]
 contents = """
 graphical
+network --bootproto=dhcp --device=link --activate --onboot=on
 """
 
 #[customizations.installer.kickstart]

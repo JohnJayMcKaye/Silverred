@@ -1,9 +1,6 @@
 # =============================================================================
 # RHEL 10 Image Mode – GNOME Notebook/Laptop-Image "Silvered"
 # =============================================================================
-# Basis-Image: das offizielle RHEL-10-bootc-Image (rhel-bootc). Es enthält im
-# Gegensatz zu UBI bereits Kernel, Bootloader und Firmware – Voraussetzung für
-# ein bootfähiges Image-Mode-System.
 #
 # Voraussetzung: podman login registry.redhat.io
 # (ein kostenloser Red Hat Developer Account reicht für den Image-Zugriff)
@@ -12,17 +9,12 @@
 # -----------------------------------------------------------------------------
 # 0) Build-Argumente & Basis-Image
 # -----------------------------------------------------------------------------
-# Vorher zeigte BASE_IMAGE per Default auf "ubi10/ubi" (kein bootc-fähiges
-# Image!) und wurde nirgends benutzt, da FROM fest auf rhel10/rhel-bootc
-# verdrahtet war. Jetzt konsistent gemacht: FROM nutzt tatsächlich die ARGs.
 ARG BASE_IMAGE=registry.redhat.io/rhel10/rhel-bootc
 ARG BASE_TAG=latest
 
 FROM ${BASE_IMAGE}:${BASE_TAG}
 
 # Metadaten – BUILD_DATE kommt aus build.sh (--build-arg BUILD_DATE=...).
-# VCS_REF war vorher im LABEL referenziert, aber nie als ARG deklariert
-# (wurde also immer leer) – jetzt sauber deklariert, standardmäßig leer.
 ARG BUILD_DATE
 ARG VERSION=10.2
 ARG VCS_REF=""
@@ -33,13 +25,13 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.title="silverred-workstation"
 
 # GRUB übernimmt seinen Menü-Titel für OSTree/bootc-Deployments 1:1 aus
-# PRETTY_NAME hier. Ohne diese Zeile ist PRETTY_NAME bei jedem Build
-# identisch ("Red Hat Enterprise Linux 10.2 (Ootpa)") – und da sich die
-# Kernel-Version zwischen zwei Builds meist auch nicht ändert, sind
-# aktuelles und voriges Deployment im GRUB-Menü sonst nicht unterscheidbar.
+# PRETTY_NAME hier. 
 # BUILD_DATE macht jeden Build eindeutig erkennbar (offiziell von Red Hat
 # so für RHEL-10-bootc-Images empfohlen).
 RUN sed -i "s/^PRETTY_NAME=.*/PRETTY_NAME=\"Silverred ${VERSION} (Build ${BUILD_DATE})\"/" /usr/lib/os-release
+
+
+RUN echo -e "fastestmirror=True\nmax_parallel_downloads=10\ninstall_weak_deps=False" >> /etc/dnf/dnf.conf
 
 # -----------------------------------------------------------------------------
 # 1) Zusätzliche Repositories aktivieren (CRB + EPEL)
@@ -52,28 +44,26 @@ RUN dnf config-manager --set-enabled codeready-builder-for-rhel-10-x86_64-rpms &
 # -----------------------------------------------------------------------------
 # 2) OpenDoas aus dem Quellcode bauen
 # -----------------------------------------------------------------------------
-# byacc statt bison, da RHEL kein yacc-kompatibles Bison-Binary bereitstellt.
 # Build-Abhängigkeiten (gcc/make/byacc) werden danach wieder entfernt, damit
 # sie nicht dauerhaft im Image landen.
-RUN dnf install -y gcc make byacc --allowerasing && \
+RUN --mount=type=cache,target=/var/cache/dnf \
+    dnf install -y gcc make byacc --allowerasing && \
     curl -L -o /tmp/opendoas.tar.gz https://github.com/Duncaen/OpenDoas/archive/refs/tags/v6.8.2.tar.gz && \
     tar -xzf /tmp/opendoas.tar.gz -C /tmp && \
     cd /tmp/OpenDoas-6.8.2 && \
     ./configure --prefix=/usr --with-timestamp && \
     make && make install && \
     cd / && rm -rf /tmp/OpenDoas-6.8.2 /tmp/opendoas.tar.gz && \
-    dnf remove -y gcc make byacc && \
-    dnf clean all
+    dnf remove -y gcc make byacc
 
 # -----------------------------------------------------------------------------
 # 3) Paketinstallation
 # -----------------------------------------------------------------------------
+#DNF-Pakete
 # 3a) Handverlesene Kernpakete für den Desktop-Betrieb, nach Zweck gruppiert.
-# 3b) Das vollständige RHEL-10-Workstation-Paketset darunter (alphabetisch).
-#     Pakete aus 3a tauchen dort absichtlich NICHT mehr auf (vorher 30-fache
-#     Dopplung, z. B. NetworkManager, cups, tuned, bluez – dnf hätte das zwar
-#     stillschweigend ignoriert, aber unnötig unübersichtlich).
-RUN dnf -y install \
+# 3b) Das vollständige RHEL-10-Workstation-Paketset darunter.
+RUN --mount=type=cache,target=/var/cache/dnf \
+    dnf -y install \
         # --- GNOME Desktop ---
         gdm \
         gnome-shell \
@@ -96,6 +86,12 @@ RUN dnf -y install \
         pipewire-pulseaudio \
         pipewire-alsa \
         wireplumber \
+        # --- Virtualisierung ---
+        virt-manager \
+        libvirt-daemon-kvm \
+        libvirt-daemon-config-network \
+        libvirt-client \
+        qemu-kvm \
         # --- Laptop-spezifisch: Stromverwaltung, Firmware, Thermal ---
         # power-profiles-daemon wurde in RHEL 10 entfernt, tuned-ppd ist der
         # offizielle Drop-in-Ersatz mit derselben API/GNOME-Integration.
@@ -114,14 +110,7 @@ RUN dnf -y install \
         curl \
         tar \
         unzip \
-        # --- Schriftarten ---
-        # google-noto-*/dejavu-sans absichtlich deaktiviert: das
-        # default-fonts-*-Paketset im Workstation-Set weiter unten deckt die
-        # Grundschriftarten bereits ab.
-        #google-noto-sans-fonts \
-        #google-noto-emoji-fonts \
-        #dejavu-sans-fonts \
-        # --- Restliches RHEL-10-Workstation-Paketset (alphabetisch, dedupliziert) ---
+        # --- Restliches RHEL-10-Workstation-Paketset ---
         ModemManager \
         ModemManager-glib \
         NetworkManager-adsl \
@@ -208,6 +197,7 @@ RUN dnf -y install \
         clevis-pin-tpm2 \
         cockpit \
         cockpit-bridge \
+        cockpit-machines \
         cockpit-packagekit \
         cockpit-storaged \
         cockpit-system \
@@ -1240,7 +1230,7 @@ RUN dnf -y install \
         realtek-firmware \
         redhat-backgrounds \
         redhat-display-vf-fonts \
-        redhat-flatpak-repo \
+        #redhat-flatpak-repo \
         redhat-logos \
         redhat-mono-vf-fonts \
         redhat-release \
@@ -1423,30 +1413,140 @@ RUN dnf -y install \
         zip \
         zlib-ng-compat \
     && dnf clean all
+RUN rm -rf /var/cache/dnf/*
 
+######
+
+######
+
+# -----------------------------------------------------------------------------
+# System-weit: Default-Tuned-Profil einmalig setzen
+# -----------------------------------------------------------------------------
+RUN mkdir -p /usr/libexec /usr/lib/systemd/system
+
+RUN cat > /usr/libexec/system-firstboot-setup <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+STAMP="/var/lib/silverred/firstboot-setup.done"
+[ -f "$STAMP" ] && exit 0
+mkdir -p "$(dirname "$STAMP")"
+
+tuned-adm profile balanced
+
+touch "$STAMP"
+EOF
+
+RUN chmod +x /usr/libexec/system-firstboot-setup
+
+RUN cat > /usr/lib/systemd/system/system-firstboot-setup.service <<'EOF'
+[Unit]
+Description=Einmaliges System-Setup nach dem ersten Boot
+After=tuned.service
+Requires=tuned.service
+ConditionPathExists=!/var/lib/silverred/firstboot-setup.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/system-firstboot-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+RUN systemctl enable system-firstboot-setup.service
+
+# -----------------------------------------------------------------------------
+# Per-User: lokale Desktop-Einstellungen via dconf-Defaults (Best Practice)
+# -----------------------------------------------------------------------------
+# Statt eines "gsettings"-Skripts als systemd --user Oneshot-Service (Race
+# Condition mit D-Bus/graphical-session.target, braucht Stamp-Datei, greift
+# erst NACH dem ersten Login): dconf-System-Defaults gelten sofort für jeden
+# über gnome-initial-setup angelegten Benutzer, ohne Skript, ohne Session-
+# Abhängigkeit. Es sind Defaults (kein "dconf update"-Lock), Benutzer können
+# sie in den Einstellungen jederzeit selbst überschreiben.
+RUN mkdir -p /etc/dconf/db/local.d /etc/dconf/profile
+
+RUN cat > /etc/dconf/profile/user <<'EOF'
+user-db:user
+system-db:local
+EOF
+
+RUN cat > /etc/dconf/db/local.d/00-silverred-defaults <<'EOF'
+[org/gnome/shell]
+enabled-extensions=['caffeine@patapon.info', 'gjsosk@vishram1123.com', 'battery-usage-wattmeter@halfmexicanhalfamazing.gmail.com']
+disabled-extensions=['background-logo@fedorahosted.org']
+
+[org/gnome/desktop/wm/preferences]
+button-layout=':minimize,close'
+
+[org/gnome/desktop/sound]
+allow-volume-above-100-percent=true
+
+[org/gnome/desktop/interface]
+enable-animations=false
+clock-show-weekday=true
+show-battery-percentage=true
+accent-color='red'
+
+EOF
+
+# dconf update kompiliert die Textdateien in /etc/dconf/db/local.d/ zur
+# binären local-DB (/etc/dconf/db/local) - ohne diesen Schritt bleiben die
+# Defaults wirkungslos.
+RUN dconf update
+
+# -----------------------------------------------------------------------------
+# Flatpak - AUSSCHLIESSLICH --user
+# -----------------------------------------------------------------------------
+# Kein "set -e": ein einzelner fehlgeschlagener Remote/Download soll nicht
+# alles Weitere verhindern. Der Stamp wird erst gesetzt, wenn WIRKLICH alle
+# Schritte durchgelaufen sind - schlägt z.B. das Netzwerk beim ersten Login
+# fehl (Laptop noch ohne WLAN), versucht es der Service beim nächsten Login
+# einfach erneut, statt für immer im Fehlerzustand zu hängen.
+# -----------------------------------------------------------------------------
+# Flatpak User-Repositories für neu angelegte Benutzer initialisieren
+# -----------------------------------------------------------------------------
+
+RUN install -d /usr/lib/systemd/user && \
+cat > /usr/lib/systemd/user/flatpak-user-setup.service <<'EOF'
+[Unit]
+Description=Initialize Flatpak user repositories
+ConditionPathExists=!%h/.local/share/flatpak/.repos-initialized
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c '\
+mkdir -p "$HOME/.local/share/flatpak" && \
+flatpak remote-add --user --if-not-exists fedora oci+https://registry.fedoraproject.org && \
+flatpak remote-add --user --if-not-exists rhel https://flatpaks.redhat.io/rhel.flatpakrepo && \
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && \
+flatpak install -y --user flathub org.mozilla.firefox && \
+touch "$HOME/.local/share/flatpak/.repos-initialized"'
+
+[Install]
+WantedBy=default.target
+#WantedBy=graphical-session.target
+EOF
+
+RUN install -d /etc/systemd/user/default.target.wants && \
+ln -sf /usr/lib/systemd/user/flatpak-user-setup.service \
+          /etc/systemd/user/default.target.wants/flatpak-user-setup.service
+
+
+######
 # -----------------------------------------------------------------------------
 # 4) Locale, Tastatur & Zeitzone
 # -----------------------------------------------------------------------------
-# Hinweis: Diese ENV-Werte wirken nur beim Image-Build selbst (RUN-Schritte)
-# und bei `podman run` zu Testzwecken – auf einem per bootc gebooteten System
-# zählen NUR die Dateien /etc/locale.conf, /etc/vconsole.conf und
-# /etc/localtime weiter unten. Deshalb hier bewusst identisch gehalten
-# (vorher stand hier LANG=de_DE.UTF-8, aber /etc/locale.conf setzte
-# LANG=en_US.UTF-8 – ein Widerspruch, der real nur beim Testen mit
-# `podman run` sichtbar geworden wäre).
-ENV LANG=de_DE.UTF-8
-ENV LANGUAGE=de_DE:de
-ENV LC_ALL=de_DE.UTF-8
-ENV TZ=Europe/Berlin
-
 # 1. Neo2-Konsolenkeymap besorgen
 RUN curl -fsSL "https://neo-layout.org/download/console.tar.xz" \
     | tar -C /usr/lib/kbd/keymaps/ -xJ
 
-# 2. vconsole.conf setzen
-RUN cat <<'EOF' > /etc/vconsole.conf
-KEYMAP=neo
-EOF
+## 2. vconsole.conf setzen
+#RUN cat <<'EOF' > /etc/vconsole.conf
+#KEYMAP=neo
+#EOF
 
 # 3. sicherstellen, dass dracut das i18n-Modul (vconsole-Setup) einbaut
 RUN cat <<'EOF' > /usr/lib/dracut/dracut.conf.d/99-i18n.conf
@@ -1457,17 +1557,12 @@ EOF
 #RUN set -x; kver=$(cd /usr/lib/modules && echo #*); \
 #    dracut -vf /usr/lib/modules/$kver/#initramfs.img $kver
 
-
-RUN cat <<'EOF' > /etc/locale.conf
-LANG=de_DE.UTF-8
-LC_TIME=de_DE.UTF-8
-LC_NUMERIC=de_DE.UTF-8
-LC_MONETARY=de_DE.UTF-8
-LC_PAPER=de_DE.UTF-8
-LC_MEASUREMENT=de_DE.UTF-8
+RUN mkdir -p /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d && \
+    cat > /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/no-forced-reboot.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/bootc upgrade
 EOF
-
-RUN ln -sf /usr/share/zoneinfo/Europe/Berlin /etc/localtime
 
 # zram-Swap (komprimiertes RAM statt/zusätzlich zu klassischer Swap-Partition)
 RUN mkdir -p /etc/systemd && \
@@ -1477,17 +1572,6 @@ zram-size = min(ram / 2, 4096)
 compression-algorithm = zstd
 swap-priority = 100
 EOF
-
-
-RUN cat <<'EOF' > /etc/dconf/db/gdm.d/00-keyboard
-[org.gnome.desktop.input-sources]
-sources=[('xkb', 'de+neo')]
-EOF
-RUN cat <<'EOF' > /etc/dconf/profile/user
-user-db:user
-system-db:local
-EOF
-RUN dconf update
 
 # -----------------------------------------------------------------------------
 # 5) Desktop als Standard-Ziel setzen & Dienste aktivieren
@@ -1499,7 +1583,11 @@ RUN systemctl set-default graphical.target && \
     systemctl enable thermald.service && \
     systemctl enable tuned.service && \
     systemctl enable cups.service && \
-    systemctl enable bootc-fetch-apply-updates.timer
+    systemctl enable fstrim.timer && \
+    systemctl enable virtqemud.socket && \
+    systemctl enable virtnetworkd.socket && \
+    systemctl enable bootc-fetch-apply-updates.timer && \
+    systemctl enable ostree-finalize-staged.service
 
 # -----------------------------------------------------------------------------
 # 6) FIDO2-Unterstützung & Plymouth-Bootscreen
@@ -1515,38 +1603,16 @@ match-architectures = ["x86_64", "aarch64"]
 EOF
 
 # EIN einziger, finaler Dracut-Lauf für ALLE initramfs-relevanten Änderungen
-# oben (FIDO2-Modul, Plymouth-Theme). Vorher liefen drei separate
-# dracut-Aufrufe (fido2, plymouth, ganz am Ende nochmal) – unnötig langsam
-# und der letzte ("dracut --force --regenerate-all" ohne Kernel-Angabe) hätte
-# im Build-Container versucht, sich an der Kernel-Version des BUILD-HOSTS
-# (uname -r) zu orientieren, die im Image gar nicht existiert. Deshalb die
-# Kernel-Version explizit aus /usr/lib/modules ermitteln – so, wie es auch
-# Red Hats eigene bootc-Beispiele für bootc-Images empfehlen. WICHTIG:
-# --regenerate-all darf dabei NICHT mit angegeben werden, dracut lehnt die
-# Kombination aus --regenerate-all und expliziter Kernel-Version/Zieldatei
-# mit einem Fehler ab ("cannot be called with a kernel version") – bei genau
-# einem installierten Kernel im Image reicht die explizite Angabe ohnehin.
 RUN set -x; kver=$(cd /usr/lib/modules && echo *); \
     dracut --force -v /usr/lib/modules/${kver}/initramfs.img ${kver}
 
 # -----------------------------------------------------------------------------
 # 7) Passwortloses sudo & doas für die "wheel"-Gruppe
 # -----------------------------------------------------------------------------
-# Rechte werden direkt beim COPY gesetzt (--chmod/--chown), unabhängig davon,
-# welche Rechte die Dateien lokal im Build-Kontext haben. Vorher landete
-# doas.conf durch einen fehlenden führenden "/" im relativen Pfad
-# "etc/doas.conf" statt "/etc/doas.conf" – funktionierte nur zufällig, weil
-# WORKDIR standardmäßig "/" ist. Jetzt explizit absolut.
 COPY --chmod=0440 etc/sudoers.d/wheel-nopasswd /etc/sudoers.d/wheel-nopasswd
 COPY --chmod=0600 --chown=root:root etc/doas.conf /etc/doas.conf
 
-# /usr/bin/doas kommt in Abschnitt 2 aus einem manuellen "make install" und
-# NICHT aus einem RPM – RPM-Pakete bringen ihre SELinux-Filecontext-Zuordnung
-# selbst mit (z. B. sudo -> sudo_exec_t), ein von Hand kompiliertes Binary
-# bekommt beim Kopieren/Installieren aber keinen automatisch zugewiesen.
-# restorecon setzt es hier explizit auf den zur Policy passenden Kontext für
-# /usr/bin (bin_t) – ohne das würde es unter dem enforcing SELinux von RHEL
-# ggf. mit falschem/keinem Kontext im Image landen.
+# SELinux Fix für doas
 RUN restorecon -v /usr/bin/doas
 
 # -----------------------------------------------------------------------------
@@ -1554,38 +1620,34 @@ RUN restorecon -v /usr/bin/doas
 # -----------------------------------------------------------------------------
 COPY --chmod=0644 etc/hostname /etc/hostname
 
-# Ab hier Cache ignorieren (praktisch, wenn sich nur Branding/Skripte
-# geändert haben und die teure Paketinstallation oben nicht neu laufen soll).
-ARG CACHE_BUST=1
+#ARG CACHE_BUST=1
 
 # -----------------------------------------------------------------------------
 # 9) Branding: Hintergründe, Logos, Bootscreen-Wasserzeichen, Icon
 # -----------------------------------------------------------------------------
-# Alle Grafikdateien explizit auf 0644 gesetzt – vorher hing die tatsächliche
-# Berechtigung von den lokalen Dateirechten im Build-Kontext ab, was z. B.
-# dazu führen kann, dass GDM/der Desktop-Session-User ein Hintergrundbild
-# nicht lesen kann, falls es lokal z. B. auf 600 stand.
 COPY --chmod=0644 usr/share/backgrounds/rhel10-iso-d.png /usr/share/backgrounds/rhel10-iso-d.png
 COPY --chmod=0644 usr/share/backgrounds/rhel10-iso-l.png /usr/share/backgrounds/rhel10-iso-l.png
-COPY --chmod=0644 usr/share/pixmaps/fedora-logo.png /usr/share/pixmaps/fedora-logo.png
-COPY --chmod=0644 usr/share/pixmaps/fedora-logo.ico /usr/share/pixmaps/fedora-logo.ico
-COPY --chmod=0644 usr/share/plymouth/themes/spinner/watermark.png /usr/share/plymouth/themes/spinner/watermark.png
-COPY --chmod=0644 usr/share/icons/hicolor/scalable/apps/start-here.svg /usr/share/icons/hicolor/scalable/apps/start-here2.svg
+COPY --chmod=0644 usr/share/backgrounds/rhel10-3D-d.png /usr/share/backgrounds/rhel10-3D-d.png
+COPY --chmod=0644 usr/share/backgrounds/rhel10-3D-l.png /usr/share/backgrounds/rhel10-3D-l.png
+COPY --chmod=0644 usr/share/backgrounds/rhel10-blobs-d.png /usr/share/backgrounds/rhel10-blobs-d.png
+COPY --chmod=0644 usr/share/backgrounds/rhel10-blobs-l.png /usr/share/backgrounds/rhel10-blobs-l.png
+#COPY --chmod=0644 usr/share/pixmaps/fedora-logo.png /usr/share/pixmaps/fedora-logo.png
+#COPY --chmod=0644 usr/share/pixmaps/fedora-logo.ico /usr/share/pixmaps/fedora-logo.ico
+#COPY --chmod=0644 usr/share/plymouth/themes/spinner/watermark.png /usr/share/plymouth/themes/spinner/watermark.png
+#COPY --chmod=0644 usr/share/icons/hicolor/scalable/apps/start-here.svg /usr/share/icons/hicolor/scalable/apps/start-here2.svg
 
 
 # -----------------------------------------------------------------------------
 # 10) Setup-Skript & GNOME-Erweiterungen
 # -----------------------------------------------------------------------------
-COPY --chmod=0644 usr/share/applications/first-setup-script.desktop /usr/share/applications/first-setup-script.desktop
-COPY --chmod=0755 usr/local/bin/silverred.sh /usr/local/bin/silverred.sh
+COPY --chmod=0644 usr/share/applications/update.desktop /usr/share/applications/update.desktop
+COPY --chmod=0755 usr/local/bin/update.sh /usr/local/bin/update.sh
 COPY --chmod=0755 usr/share/gnome-shell/extensions/ /usr/share/gnome-shell/extensions/
 
-# -----------------------------------------------------------------------------
-# 11) Build-Log
-# -----------------------------------------------------------------------------
-COPY --chmod=0644 usr/local/bin/log.txt /usr/local/bin/log.txt
 
-# gnome-initial-setup
+# -----------------------------------------------------------------------------
+# 11) gnome-initial-setup
+# -----------------------------------------------------------------------------
 
 COPY --chmod=0644 etc/gdm/custom.conf /etc/gdm/custom.conf
 RUN mkdir -p /var/lib/gdm
@@ -1595,6 +1657,11 @@ RUN mkdir -p /etc/gnome-initial-setup && \
     cat > /etc/gnome-initial-setup/vendor.conf <<'EOF'
 [pages]
 EOF
+
+
+# --- Firewallregeln
+
+RUN firewall-offline-cmd --add-service=cockpit
 
 # -----------------------------------------------------------------------------
 # 12) Abschließende Prüfung
